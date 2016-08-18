@@ -76,7 +76,7 @@ module Text.PrettyPrint.Free.Internal (
 
   -- * Basic combinators
   , char, text, nest, line, linebreak, group, softline
-  , softbreak, hardline, flatAlt, flatten
+  , softbreak, hardline, flatAlt, flatten, flatten_
 
   -- * Annotations
   , annotate, sdocAE, sdocScanAnn
@@ -1006,7 +1006,7 @@ ribbon = Ribbon
 -- that fits the page. Otherwise, the document @x@ is rendered without
 -- any changes.
 group :: Doc a e -> Doc a e
-group x = Union (flatten x) x
+group x = maybe x (flip Union x) $ flatten_ x
 
 -- | @flatAlt@ creates a document that changes when flattened; normally
 -- it is rendered as the first argument, but when flattened is rendered
@@ -1014,17 +1014,40 @@ group x = Union (flatten x) x
 flatAlt :: Doc a e -> Doc a e -> Doc a e
 flatAlt = FlatAlt
 
+flatten_ :: Doc a e -> Maybe (Doc a e)
+flatten_ (FlatAlt _ y)  = Just y
+flatten_  Line          = Just Fail
+
+flatten_ (Union x _)    = flatten_ x `mplus` Just x
+flatten_ (Cat x y)      = maybe (maybe Nothing (Just . Cat x) $ flatten_ y)
+                                (\x' -> maybe (Just $ Cat x' y) (Just . Cat x') $ flatten_ y)
+                              $ flatten_ x
+flatten_ (Nest i x)     = Nest i <$> flatten_ x
+
+-- XXX? :(
+flatten_ (Column f)     = Just $ Column (flatten . f)
+flatten_ (Nesting f)    = Just $ Nesting (flatten . f)
+flatten_ (Columns f)    = Just $ Columns (flatten . f)
+flatten_ (Ribbon f)     = Just $ Ribbon (flatten . f)
+
+flatten_ Empty          = Nothing
+flatten_ (Char _)       = Nothing
+flatten_ (Text _ _)     = Nothing
+
+
 flatten :: Doc a e -> Doc a e
-flatten (FlatAlt _ y)   = y
-flatten (Cat x y)       = Cat (flatten x) (flatten y)
-flatten (Nest i x)      = Nest i (flatten x)
-flatten  Line           = Fail
-flatten (Union x _)     = flatten x
-flatten (Column f)      = Column (flatten . f)
-flatten (Nesting f)     = Nesting (flatten . f)
-flatten (Columns f)     = Columns (flatten . f)
-flatten (Ribbon f)      = Ribbon (flatten . f)
-flatten other           = other                     --Empty,Char,Text
+flatten (FlatAlt _ y)    = y
+flatten (Cat x y)        = Cat (flatten x) (flatten y)
+flatten (Nest i x)       = Nest i (flatten x)
+flatten  Line            = Fail
+flatten (Union x _)      = flatten x
+flatten (Column f)       = Column (flatten . f)
+flatten (Nesting f)      = Nesting (flatten . f)
+flatten (Columns f)      = Columns (flatten . f)
+flatten (Ribbon f)       = Ribbon (flatten . f)
+flatten other@Empty      = other
+flatten other@(Char _)   = other
+flatten other@(Text _ _) = other
 
 -----------------------------------------------------------
 -- Renderers
